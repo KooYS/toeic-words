@@ -13,8 +13,10 @@
   html { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; }
   body { margin: 0; background: var(--bg); color: var(--fg);
          font: 16px/1.5 -apple-system, sans-serif; touch-action: pan-x pan-y; }
-  header { position: sticky; top: 0; padding: 10px 14px; border-bottom: 1px solid var(--line);
-           background: var(--bg); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  /* z-index 없는 sticky는 WebKit에서 아래 콘텐츠가 뚫고 올라온다 (카카오 인앱 브라우저) */
+  header { position: sticky; top: 0; z-index: 10; padding: 10px 14px;
+           border-bottom: 1px solid var(--line); background: var(--bg);
+           display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   /* 좁으면 줄바꿈으로 흘러가되, 항목 안에서 글자가 쪼개지지는 않게 */
   header > * { white-space: nowrap; }
   h1 { font-size: 17px; margin: 0; margin-right: auto; }
