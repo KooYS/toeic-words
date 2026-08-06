@@ -1,6 +1,6 @@
 <!doctype html>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>토익영단어</title>
 <style>
   /* 시스템 색(Canvas/CanvasText)에 맡기면 인앱 브라우저에서 배경만 밝게 칠해지고
@@ -9,8 +9,10 @@
   @media (prefers-color-scheme: dark) { :root { --bg: #111; --fg: #eaeaea; } }
   /* display를 직접 준 요소(label:flex, #grid:grid)는 브라우저 기본 [hidden]을 이겨버린다 */
   [hidden] { display: none !important; }
+  /* pan-x pan-y = 스크롤만 허용. 핀치 줌과 더블탭 줌을 둘 다 끈다 */
+  html { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; }
   body { margin: 0; background: var(--bg); color: var(--fg);
-         font: 16px/1.5 -apple-system, sans-serif; }
+         font: 16px/1.5 -apple-system, sans-serif; touch-action: pan-x pan-y; }
   header { position: sticky; top: 0; padding: 10px 14px; border-bottom: 1px solid var(--line);
            background: var(--bg); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   /* 좁으면 줄바꿈으로 흘러가되, 항목 안에서 글자가 쪼개지지는 않게 */
@@ -257,6 +259,10 @@ function showResult() {
      <p><button id="again">다시 풀기</button></p>`
   $('again').onclick = () => $('quizgo').onclick()
 }
+
+// iOS Safari는 접근성 때문에 user-scalable=no 를 무시한다. 핀치 제스처를 직접 막는다.
+for (const t of ['gesturestart', 'gesturechange', 'gestureend'])
+  document.addEventListener(t, e => e.preventDefault(), { passive: false })
 
 show('grid', '강 선택')   // 초기 화면도 같은 규칙으로 (안 하면 듣기 옵션이 강 선택에 남는다)
 </script>
