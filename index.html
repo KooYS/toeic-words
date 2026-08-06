@@ -45,6 +45,23 @@
   #qopts button.no { background: #e0333333; border-color: #e03333; }
   .qscore { font-size: 30px; font-weight: 700; margin: 8px 0 20px; }
   .qwrong { padding: 10px 0; border-bottom: 1px solid var(--line); }
+
+  #exam { padding: 20px 16px 48px; max-width: 560px; margin: 0 auto; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 20px; }
+  .ex { padding: 18px 0; border-bottom: 1px solid var(--line); }
+  .exq { font-size: 20px; font-weight: 700; margin: 4px 0 12px; line-height: 1.35; }
+  .exin { width: 100%; box-sizing: border-box; font: inherit; padding: 12px 14px;
+          border: 1px solid var(--line); border-radius: 8px; background: none; color: var(--fg); }
+  .exopts { display: grid; gap: 8px; }
+  .exopts button { text-align: left; padding: 11px 14px; }
+  .exopts button.pick { border-color: var(--accent); background: #6c4cf126; }
+  .exopts button.ok { background: #1f9d5533; border-color: #1f9d55; }
+  .exopts button.no { background: #e0333333; border-color: #e03333; }
+  .exres { margin-top: 10px; font-size: 14px; display: flex; gap: 10px;
+           align-items: center; flex-wrap: wrap; }
+  .exok { color: #1f9d55; font-weight: 600; }
+  .exno { color: #e03333; font-weight: 600; }
+  #scorebar { padding-bottom: 14px; border-bottom: 1px solid var(--line); }
 </style>
 
 <header>
@@ -52,6 +69,7 @@
   <h1 id="title">강 선택</h1>
   <button id="go" disabled>▶ 선택 듣기</button>
   <button id="quizgo" disabled>퀴즈</button>
+  <button id="examgo" disabled>시험</button>
   <label id="optloop"><input type="checkbox" id="loop" checked>이어듣기</label>
   <label id="opttwice"><input type="checkbox" id="twice">2회</label>
   <label id="optword"><input type="checkbox" id="wordonly">단어만</label>
@@ -59,6 +77,7 @@
 <div id="grid"></div>
 <ol id="list"></ol>
 <div id="quiz" hidden></div>
+<div id="exam" hidden></div>
 <audio id="au"></audio>
 
 <script>
@@ -86,7 +105,7 @@ fetch('segments.json').then(r => r.json()).then(d => {
     b.onclick = () => {
       sel.has(L) ? sel.delete(L) : sel.add(L)
       b.classList.toggle('sel', sel.has(L))
-      $('go').disabled = $('quizgo').disabled = !sel.size
+      $('go').disabled = $('quizgo').disabled = $('examgo').disabled = !sel.size
       $('go').textContent = sel.size ? `▶ 선택 듣기 (+${sel.size})` : '▶ 선택 듣기'
     }
     return b
@@ -99,8 +118,9 @@ function show(name, title) {
   $('grid').hidden = name !== 'grid'
   $('list').hidden = name !== 'list'
   $('quiz').hidden = name !== 'quiz'
+  $('exam').hidden = name !== 'exam'
   $('back').hidden = name === 'grid'
-  $('go').hidden = $('quizgo').hidden = name !== 'grid'
+  $('go').hidden = $('quizgo').hidden = $('examgo').hidden = name !== 'grid'
   $('optloop').hidden = $('opttwice').hidden = $('optword').hidden = name !== 'list'
 }
 
@@ -108,6 +128,7 @@ $('back').onclick = () => {
   i = -1
   $('list').replaceChildren()
   $('quiz').replaceChildren()
+  $('exam').replaceChildren()
   show('grid', '강 선택')
 }
 
@@ -262,6 +283,174 @@ function showResult() {
         <div class="m">${esc(q.src.meaning)}</div></div>`).join('')}
      <p><button id="again">다시 풀기</button></p>`
   $('again').onclick = () => $('quizgo').onclick()
+}
+
+/* ---------- 시험 ---------- */
+
+let exam = [], cfg = { count: 20, kind: '섞어서' }
+
+// 뜻 문자열을 채점 후보로 쪼갠다.
+//   "n. 1. 몫, 지분, 주식 2. 공유하다, 나누다" → 몫 / 지분 / 주식 / 공유하다 / 나누다
+//   "주의[경고]를 주다"                        → 주의를주다 / 경고를주다  (대괄호는 대체 표현)
+function bare(s) {
+  return s.replace(/\([^)]*\)/g, '').replace(/[\s~·․\-–—.,;/]/g, '')
+}
+function senses(meaning) {
+  // 뜻 번호는 지우는 게 아니라 구분자로 바꾼다.
+  // 지우기만 하면 "주식 2. 공유하다" 가 "주식공유하다" 한 덩어리가 된다.
+  const body = meaning.replace(/^[a-z]+\.\s*/i, '').replace(/\(?\d+\)?\.\s*/g, ',')
+  const forms = body.includes('[')
+    ? [body.replace(/\[[^\]]*\]/g, ''), body.replace(/[^\s,;/]*\[([^\]]*)\]/g, '$1')]
+    : [body]
+  const out = new Set()
+  for (const f of forms)
+    for (const part of f.split(/[,;/]/)) {
+      const v = bare(part)
+      if (v) out.add(v)
+    }
+  return [...out]
+}
+// 뜻이 여러 개면 하나만 맞아도 정답. 유의어(걷다↔걸어가다)는 자동으로 못 잡는다.
+// 여기서 안 걸린 답은 정답을 보여주고 사용자가 직접 O/X 를 준다.
+//
+// 부분일치는 '포함'이 아니라 '앞에서부터'만 인정한다. 포함으로 하면 "하다" 한 방에
+// 공유하다·제공하다가 전부 정답이 되어버린다. 오답을 정답으로 넘기는 실수가
+// 정답을 오답으로 떨구는 실수보다 나쁘다 (후자는 한 번 눌러 뒤집으면 된다).
+function autoGrade(given, meaning) {
+  const S = senses(meaning), G = senses(given)
+  return G.some(g => S.some(s => s === g
+    || (g.length >= 2 && s.startsWith(g)) || (s.length >= 2 && g.startsWith(s))))
+}
+
+function chipRow(label, items, get, set) {
+  const title = document.createElement('div')
+  title.className = 'qtype'; title.textContent = label
+  const row = document.createElement('div'); row.className = 'chips'
+  const paint = () => [...row.children].forEach((b, k) => b.classList.toggle('sel', items[k][1] === get()))
+  row.append(...items.map(([text, val]) => {
+    const b = document.createElement('button')
+    b.textContent = text
+    b.onclick = () => { set(val); paint() }
+    return b
+  }))
+  paint()
+  const box = document.createElement('div')
+  box.append(title, row)
+  return box
+}
+
+$('examgo').onclick = () => {
+  const pool = picked()
+  show('exam', '시험 설정')
+  const counts = [...new Set([10, 20, 30, 50, pool.length].filter(n => n <= pool.length))]
+  cfg.count = Math.min(cfg.count, pool.length)
+  const start = document.createElement('button')
+  start.textContent = '시험 시작'
+  start.onclick = () => startExam(pool)
+  const p = document.createElement('p'); p.append(start)
+  $('exam').replaceChildren(
+    chipRow('문제 수', counts.map(n => [n === pool.length ? `전체 ${n}` : String(n), n]),
+            () => cfg.count, v => cfg.count = v),
+    chipRow('형식', [['객관식', '객관식'], ['주관식', '주관식'], ['섞어서', '섞어서']],
+            () => cfg.kind, v => cfg.kind = v),
+    p)
+}
+
+function startExam(pool) {
+  exam = shuffle(pool.slice()).slice(0, cfg.count).map(e => {
+    const kind = cfg.kind === '섞어서' ? (Math.random() < 0.5 ? '객관식' : '주관식') : cfg.kind
+    return kind === '주관식'
+      ? { kind, type: '뜻 쓰기', prompt: e.word, answer: e.meaning, src: e, given: '' }
+      : { kind, ...makeQ(e, pool), src: e, given: null }
+  })
+  renderExam()
+}
+
+function renderExam() {
+  show('exam', `시험 · ${exam.length}문제`)
+  const frag = document.createDocumentFragment()
+  exam.forEach((q, n) => {
+    const box = document.createElement('div'); box.className = 'ex'
+    const meta = document.createElement('div'); meta.className = 'qmeta'
+    meta.textContent = `${n + 1}. ${q.type}`
+    const prompt = document.createElement('div'); prompt.className = 'exq'
+    prompt.textContent = q.prompt
+    box.append(meta, prompt)
+
+    if (q.kind === '주관식') {
+      const inp = document.createElement('input')
+      inp.className = 'exin'; inp.placeholder = '뜻을 쓰세요'
+      inp.autocapitalize = 'off'; inp.value = q.given
+      inp.oninput = () => q.given = inp.value
+      q.inputs = [inp]
+      box.append(inp)
+    } else {
+      const opts = document.createElement('div'); opts.className = 'exopts'
+      opts.append(...q.opts.map(o => {
+        const b = document.createElement('button')
+        b.textContent = o
+        b.onclick = () => {
+          q.given = o
+          ;[...opts.children].forEach(x => x.classList.toggle('pick', x === b))
+        }
+        return b
+      }))
+      q.inputs = [...opts.children]
+      box.append(opts)
+    }
+    q.res = document.createElement('div'); q.res.className = 'exres'
+    box.append(q.res)
+    frag.append(box)
+  })
+  const submit = document.createElement('button')
+  submit.textContent = '채점하기'
+  submit.onclick = grade
+  const p = document.createElement('p'); p.append(submit)
+  frag.append(p)
+  $('exam').replaceChildren(frag)
+  scrollTo(0, 0)
+}
+
+function grade() {
+  for (const q of exam) {
+    q.ok = q.kind === '주관식' ? autoGrade(q.given, q.answer) : q.given === q.answer
+    q.inputs.forEach(el => {
+      el.disabled = true
+      if (q.kind === '주관식') return
+      if (el.textContent === q.answer) el.classList.add('ok')
+      else if (el.textContent === q.given) el.classList.add('no')
+    })
+    paintRow(q)
+  }
+  paintScore()
+  scrollTo(0, 0)
+}
+
+function paintRow(q) {
+  const mark = document.createElement('span')
+  mark.className = q.ok ? 'exok' : 'exno'
+  mark.textContent = q.ok ? '○ 정답' : '✕ 오답'
+  const ans = document.createElement('span'); ans.className = 'm'
+  ans.textContent = '정답: ' + q.answer
+  q.res.replaceChildren(mark, ans)
+  if (q.kind !== '주관식') return
+  // 유의어는 자동 채점이 못 잡는다 → 본인이 뒤집는다
+  const flip = document.createElement('button')
+  flip.textContent = q.ok ? '오답으로' : '정답으로'
+  flip.onclick = () => { q.ok = !q.ok; paintRow(q); paintScore() }
+  q.res.append(flip)
+}
+
+function paintScore() {
+  const ok = exam.filter(q => q.ok).length
+  const pct = Math.round(ok / exam.length * 100)
+  let bar = $('scorebar')
+  if (!bar) { bar = document.createElement('div'); bar.id = 'scorebar'; $('exam').prepend(bar) }
+  const s = document.createElement('div'); s.className = 'qscore'; s.textContent = `${pct}점`
+  const d = document.createElement('div'); d.className = 'qmeta'
+  d.textContent = `${exam.length}문제 중 ${ok}개 정답`
+  bar.replaceChildren(s, d)
+  show('exam', `시험 결과 · ${pct}점`)
 }
 
 // iOS Safari는 접근성 때문에 user-scalable=no 를 무시한다. 핀치 제스처를 직접 막는다.
