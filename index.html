@@ -404,12 +404,7 @@ document.onvisibilitychange = () => {
 
 // timeupdate는 ~250ms 간격이라 끝을 넘겨 다음 단어가 새어 나온다.
 // 화면이 켜져 있을 땐 rAF(~16ms)로 정확히 끊고, 백그라운드에선 rAF가 멈추므로
-// timeupdate를 예비로 남긴다.
-// 백그라운드에선 그마저 못 믿는다: 잠금 화면·인앱 브라우저는 숨은 페이지의 play()를
-// 막아서, 단어 끝에서 pause()하면 거기서 영영 침묵한다. 그래서 다음 단어가 같은
-// 파일에서 바로 이어지면 끊지 않고 흘려보내며 목록 위치만 따라가고(어차피 원본
-// mp3가 그 순서다), 파일 끝만 ended에서 잇는다 — 미디어 이벤트 안의 재생 전환은
-// 잠금 화면에서도 허용된다.
+// timeupdate를 예비로 남긴다. 백그라운드의 단어 넘김 규칙은 check() 안에.
 let raf = 0
 // 다음 항목이 같은 파일에서 바로 이어지는가. 단어 사이 무음은 1초를 넘지 않는다
 const flows = n => cur[n + 1] && cur[n + 1].file === cur[n].file
@@ -422,9 +417,25 @@ function check() {
   const stop = $('wordonly').checked ? s.wordEnd : s.end   // 뜻 빼고 영단어만
   // currentTime < start 는 seek이 아직 안 끝난 상태 (앞 단어로 되돌아갈 때)
   if ($('au').currentTime < s.start || $('au').currentTime < stop) return false
-  // 배경: 안 끊는다. 마지막 단어도 파일 끝까지 흘려보내면 ended가 처음으로 되돌린다
-  if (document.hidden && $('loop').checked && !$('twice').checked
-                      && !$('wordonly').checked && (flows(i) || !cur[i + 1])) return false
+  // 배경에선 pause()를 안 한다 — 한 번 멎으면 숨은 페이지는 play()가 막혀 못 살린다.
+  // 다음 단어가 바로 이어지면 그냥 흘려보내고, 같은 파일 안이면(찜처럼 띄엄띄엄해도)
+  // 소리를 끊지 않은 채 seek로 건너뛴다. 다른 파일로 넘어갈 땐 파일 끝으로 seek해서
+  // ended를 일으킨다 — ended 핸들러 안의 재생 전환이 잠금 화면이 허용하는 통로다.
+  if (document.hidden && $('loop').checked) {
+    const n = (i + 1) % cur.length
+    if ($('au').paused) { play(n); return true }             // ended를 거쳐 왔다
+    if ($('twice').checked && ++plays < 2) { seek(s.start); return false }
+    if (cur[n].file !== s.file) {
+      // 딱 duration으로 seek하면 ended가 안 오고 끝 프레임에 걸린다 → 조금 앞에서 자연히 닿게
+      const tail = $('au').duration - 0.3
+      if ($('au').currentTime < tail) seek(tail)
+      return false
+    }
+    if (n !== i + 1 || !flows(i) || $('wordonly').checked) {
+      i = n; plays = 0; mark(n); seek(cur[n].start)          // 안 이어지는 자리만 점프
+    }
+    return false                                             // 이어지면 흘려보낸다
+  }
   $('au').pause()
   cancelAnimationFrame(raf)
   if ($('twice').checked && ++plays < 2) { seek(s.start); $('au').play() }
@@ -434,7 +445,7 @@ function check() {
 function tick() { if (!$('au').paused && !check()) raf = requestAnimationFrame(tick) }
 $('au').onplay = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(tick) }
 $('au').ontimeupdate = check
-$('au').onended = () => { if (!$('list').hidden && $('loop').checked) play((i + 1) % cur.length) }
+$('au').onended = check   // 파일 끝(배경 전환·딥슬립 뒤 기상 포함)도 같은 규칙으로 잇는다
 
 onkeydown = e => {
   if ($('list').hidden) return
