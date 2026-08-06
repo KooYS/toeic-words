@@ -29,6 +29,12 @@
   ol { list-style: none; margin: 0; padding: 0 }
   li { padding: 12px 16px; border-bottom: 1px solid var(--line); cursor: pointer; }
   li.on { background: #6c4cf126; }
+  /* 별을 넣으면서 flex가 됐다. .txt 가 없으면 단어와 뜻이 좌우로 벌어진다 */
+  li, .qwrong { display: flex; gap: 10px; align-items: flex-start; }
+  .txt { flex: 1; min-width: 0; }
+  /* padding 과 같은 크기의 음수 margin. 보이는 위치는 그대로 두고 손가락 히트 영역만 넓힌다 */
+  .star { border: none; font-size: 20px; line-height: 1.3; color: var(--accent);
+          padding: 8px; margin: -8px; }
   .w { font-size: 19px; font-weight: 600; }
   .m { opacity: .75; font-size: 14px; }
   .lz { font-size: 12px; opacity: .6; }
@@ -62,6 +68,25 @@
   .exok { color: #1f9d55; font-weight: 600; }
   .exno { color: #e03333; font-weight: 600; }
   #scorebar { padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+
+  /* 세로 가운데 정렬 대신 위 여백. flex 중앙 정렬은 모바일에서 키보드가 올라올 때 폼이 밀린다 */
+  /* border-box 가 아니면 320 + 좌우 패딩 40 = 360px 이 되어 좁은 기기에서 가로로 넘친다 */
+  #auth { padding: 12vh 20px 48px; max-width: 360px; box-sizing: border-box; margin: 0 auto; }
+  .authlead { font-size: 14px; opacity: .65; line-height: 1.65; margin: 0 0 26px; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 13px; opacity: .55; margin-bottom: 6px; }
+  /* font: inherit = 16px. 더 작으면 iOS가 포커스할 때 화면을 확대해버린다 */
+  .field input { width: 100%; box-sizing: border-box; font: inherit; padding: 12px 14px;
+                 border: 1px solid var(--line); border-radius: 8px;
+                 background: none; color: var(--fg); }
+  .field input:focus { outline: none; border-color: var(--accent); }
+  .primary { width: 100%; padding: 13px; margin-top: 6px; font-weight: 600;
+             background: var(--accent); border-color: var(--accent); color: #fff; }
+  .swap { display: block; margin: 18px auto 0; border: none;
+          font-size: 14px; opacity: .7; text-decoration: underline; }
+  /* min-height 가 없으면 에러가 뜰 때 버튼이 아래로 밀린다 */
+  .autherr { color: #e03333; font-size: 14px; line-height: 1.5;
+             min-height: 21px; margin: 12px 0 0; }
 </style>
 
 <header>
@@ -70,6 +95,7 @@
   <button id="go" disabled>▶ 선택 듣기</button>
   <button id="quizgo" disabled>퀴즈</button>
   <button id="examgo" disabled>시험</button>
+  <button id="acct">로그인</button>
   <label id="optloop"><input type="checkbox" id="loop" checked>이어듣기</label>
   <label id="opttwice"><input type="checkbox" id="twice">2회</label>
   <label id="optword"><input type="checkbox" id="wordonly">단어만</label>
@@ -78,14 +104,190 @@
 <ol id="list"></ol>
 <div id="quiz" hidden></div>
 <div id="exam" hidden></div>
+<div id="auth" hidden></div>
 <audio id="au"></audio>
 
+<!-- CDN 대신 저장소에 둔다. 인앱 브라우저에서 CDN이 막히면 앱 전체가 죽는다 -->
+<script src="vendor/supabase.js"></script>
 <script>
 const $ = id => document.getElementById(id)
 // 뜻에 '<시기 등이>' 같은 꺾쇠가 들어있다 (over, 68강). 태그로 먹히면 글자가 사라진다.
 const esc = s => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]))
 let segs = [], cur = [], i = -1, plays = 0, file = null
 const sel = new Set()
+
+/* ---------- 계정 · 찜 ---------- */
+
+// 둘 다 브라우저에 그대로 박히는 공개값이다. 막는 건 키가 아니라 RLS(auth.uid() = user_id).
+const sb = window.supabase.createClient(
+  'https://pzqupmiufoxsdhixgzbq.supabase.co',
+  'sb_publishable_RpOQfoK4pLPUbJMhjFRbrA_rQ3WCUwW')
+
+// 세션은 여전히 localStorage에 있다. 하지만 날아가도 다시 로그인하면 찜은 서버에 그대로다.
+// 날아가면 안 되는 건 세션이 아니라 데이터고, 그게 이번에 서버로 옮긴 이유다.
+let me = null
+const star = new Set()   // 손으로 찜한 seq
+const weak = new Set()   // 자주 틀린 seq (attempts 에서 계산)
+const WEAK_MIN = 2       // 오답 이 횟수 이상이면 '자주 틀림'
+
+sb.auth.onAuthStateChange(async (_e, s) => {   // 첫 로드 때도 INITIAL_SESSION 으로 한 번 온다
+  me = s?.user ?? null
+  $('acct').textContent = me ? '계정' : '로그인'
+  star.clear()
+  if (me) {
+    const { data } = await sb.from('stars').select('seq')
+    for (const r of data ?? []) star.add(r.seq)
+  }
+  starChip.paint()
+  await loadWeak()
+  // 계정 화면을 띄워둔 채 세션이 끊기면(로그아웃·만료) '계정 · 로그아웃'이 그대로 남는다.
+  // 로그인 성공 쪽은 제출 핸들러가 화면을 옮기므로 여기서 건드리지 않는다.
+  if (!me && !$('auth').hidden) showAuth()
+})
+
+// 찜과 자주틀림은 '강'이 아니지만 강처럼 고르게 한다. 그래야 picked() 하나만 고치면
+// 듣기·퀴즈·시험이 전부 따라온다.
+// 비어 있으면 아예 숨긴다. '★ 찜 0' 이 회색으로 떠 있으면 뭘 하라는 건지 모른다.
+function virtualChip(key, label, set) {
+  const b = document.createElement('button')
+  b.onclick = () => {
+    sel.has(key) ? sel.delete(key) : sel.add(key)
+    b.classList.toggle('sel', sel.has(key))
+    syncGo()
+  }
+  b.paint = () => {
+    b.textContent = `${key} ${label} ${set.size}`
+    b.hidden = !set.size
+    if (!set.size) { sel.delete(key); b.classList.remove('sel') }
+    syncGo()
+  }
+  b.paint()
+  return b
+}
+const starChip = virtualChip('★', '찜', star)
+const weakChip = virtualChip('✕', '자주 틀림', weak)
+function syncGo() {
+  $('go').disabled = $('quizgo').disabled = $('examgo').disabled = !sel.size
+  $('go').textContent = sel.size ? `▶ 선택 듣기 (+${sel.size})` : '▶ 선택 듣기'
+}
+
+// 목록·퀴즈 결과·시험 결과 세 군데가 같은 버튼을 쓴다.
+function starBtn(seq) {
+  const b = document.createElement('button')
+  b.className = 'star'
+  const paint = () => b.textContent = star.has(seq) ? '★' : '☆'
+  paint()
+  b.onclick = async e => {
+    e.stopPropagation()          // li 클릭은 재생이다. 안 막으면 별 누를 때마다 재생된다
+    if (!me) return showAuth()
+    const on = star.has(seq)
+    on ? star.delete(seq) : star.add(seq)
+    paint()                      // 낙관적으로 먼저 칠하고
+    // .select() 를 붙여야 실제로 몇 행이 바뀌었는지 돌아온다. 안 붙이면 RLS 에 막힌 delete 가
+    // 에러 없이 '0행 삭제' 로 끝나서, 지워지지도 않았는데 화면만 ☆ 로 바뀐다.
+    const { data, error } = on ? await sb.from('stars').delete().eq('seq', seq).select()
+                               : await sb.from('stars').insert({ seq }).select()
+    if (error || !data?.length) { on ? star.add(seq) : star.delete(seq); paint() }
+    starChip.paint()
+  }
+  return b
+}
+
+/* ---------- 시도 이력 ---------- */
+
+// 시도를 통째로 받아서 JS 에서 센다. 한 사람이 쌓는 양이 몇천 행이라 이걸로 충분하다.
+// ponytail: 그 이상 쌓이면 서버에 집계 뷰를 두는 게 맞다.
+async function loadWeak() {
+  weak.clear()
+  if (me) {
+    const { data } = await sb.from('attempts').select('seq, ok')
+    const miss = new Map()
+    for (const r of data ?? []) if (!r.ok) miss.set(r.seq, (miss.get(r.seq) ?? 0) + 1)
+    for (const [seq, n] of miss) if (n >= WEAK_MIN) weak.add(seq)
+  }
+  weakChip.paint()
+}
+
+// 기록은 화면을 막지 않는다. 서버가 죽어도 퀴즈는 계속 풀려야 한다.
+// PostgrestBuilder 는 then 을 붙여야 실제로 나간다.
+function logAttempt(seq, ok, mode) {
+  if (me) sb.from('attempts').insert({ seq, ok, mode }).then(null, () => {})
+}
+
+$('acct').onclick = () => showAuth()
+
+// Supabase 에러는 영어로 온다. 실제로 자주 보게 되는 것만 옮긴다.
+function authMsg(m) {
+  if (/Invalid login credentials/i.test(m)) return '이메일 또는 비밀번호가 틀렸다.'
+  if (/already registered/i.test(m))        return '이미 가입된 이메일이다. 로그인으로 바꿔서 시도해라.'
+  if (/at least (\d+) characters/i.test(m)) return `비밀번호는 ${m.match(/at least (\d+)/i)[1]}자 이상이어야 한다.`
+  if (/valid email|invalid format/i.test(m)) return '이메일 형식이 아니다.'
+  return m
+}
+
+let joining = false   // false = 로그인, true = 가입
+
+function showAuth() {
+  show('auth', me ? '계정' : joining ? '가입' : '로그인')
+  if (me) return showAccount()
+
+  const f = document.createElement('form')
+  f.innerHTML =
+    `<p class="authlead">찜한 단어는 계정에 저장된다.<br>
+       로그인하면 폰에서 찜한 걸 PC에서도 그대로 볼 수 있고, 브라우저 기록을 지워도 남는다.</p>
+     <div class="field">
+       <label for="email">이메일</label>
+       <input id="email" type="email" required autocapitalize="off" autocomplete="username">
+     </div>
+     <div class="field">
+       <label for="pw">비밀번호</label>
+       <input id="pw" type="password" required minlength="6"
+              autocomplete="${joining ? 'new' : 'current'}-password">
+     </div>
+     <p class="autherr"></p>`
+
+  // <form> 으로 감싸야 엔터 제출·비번 관리자 자동완성·접근성이 공짜로 따라온다
+  const go = document.createElement('button')
+  go.className = 'primary'
+  go.textContent = joining ? '가입하기' : '로그인'
+  f.append(go)
+
+  f.onsubmit = async e => {
+    e.preventDefault()
+    const err = f.querySelector('.autherr')
+    err.textContent = ''
+    go.disabled = true
+    go.textContent = '…'
+    const c = { email: $('email').value.trim(), password: $('pw').value }
+    const { data, error } = joining ? await sb.auth.signUp(c)
+                                    : await sb.auth.signInWithPassword(c)
+    if (!error && data.session) return $('back').onclick()
+    // 가입은 성공해도 세션이 없을 수 있다 — 대시보드에서 Confirm email 을 안 끈 경우
+    err.textContent = error ? authMsg(error.message)
+                            : '가입됐다. 메일의 확인 링크를 눌러야 로그인된다.'
+    go.disabled = false
+    go.textContent = joining ? '가입하기' : '로그인'
+  }
+
+  const swap = document.createElement('button')
+  swap.type = 'button'          // form 안의 button 은 기본이 submit 이다
+  swap.className = 'swap'
+  swap.textContent = joining ? '이미 계정이 있으면 로그인' : '계정이 없으면 가입하기'
+  swap.onclick = () => { joining = !joining; showAuth() }
+
+  $('auth').replaceChildren(f, swap)
+}
+
+function showAccount() {
+  const who = document.createElement('p')
+  who.className = 'authlead'
+  who.textContent = `${me.email} · 찜 ${star.size}개`
+  const out = document.createElement('button')
+  out.className = 'primary'
+  out.textContent = '로그아웃'
+  out.onclick = async () => { await sb.auth.signOut(); $('back').onclick() }
+  $('auth').replaceChildren(who, out)
+}
 // 철자 → 그 철자가 갖는 모든 뜻 / 뜻 → 그 뜻을 갖는 모든 철자.
 // raise 처럼 한 철자가 여러 뜻으로 쪼개져 있으면 보기끼리 다 정답이 되어버리므로
 // 문제를 만들 때 이 집합을 통째로 보기에서 뺀다.
@@ -99,17 +301,18 @@ fetch('segments.json').then(r => r.json()).then(d => {
     meaningsOf.get(s.word).add(s.meaning)
     wordsOf.get(s.meaning).add(s.word)
   }
-  $('grid').append(...[...new Set(segs.map(s => s.lesson))].map(L => {
+  $('grid').append(starChip, weakChip, ...[...new Set(segs.map(s => s.lesson))].map(L => {
     const b = document.createElement('button')
     b.textContent = L
     b.onclick = () => {
       sel.has(L) ? sel.delete(L) : sel.add(L)
       b.classList.toggle('sel', sel.has(L))
-      $('go').disabled = $('quizgo').disabled = $('examgo').disabled = !sel.size
-      $('go').textContent = sel.size ? `▶ 선택 듣기 (+${sel.size})` : '▶ 선택 듣기'
+      syncGo()
     }
     return b
   }))
+  starChip.paint()
+  weakChip.paint()
 })
 
 function show(name, title) {
@@ -119,8 +322,9 @@ function show(name, title) {
   $('list').hidden = name !== 'list'
   $('quiz').hidden = name !== 'quiz'
   $('exam').hidden = name !== 'exam'
+  $('auth').hidden = name !== 'auth'
   $('back').hidden = name === 'grid'
-  $('go').hidden = $('quizgo').hidden = $('examgo').hidden = name !== 'grid'
+  $('go').hidden = $('quizgo').hidden = $('examgo').hidden = $('acct').hidden = name !== 'grid'
   $('optloop').hidden = $('opttwice').hidden = $('optword').hidden = name !== 'list'
 }
 
@@ -129,20 +333,30 @@ $('back').onclick = () => {
   $('list').replaceChildren()
   $('quiz').replaceChildren()
   $('exam').replaceChildren()
+  $('auth').replaceChildren()
+  loadWeak()          // 방금 푼 퀴즈·시험이 '자주 틀림' 개수에 바로 반영되도록
   show('grid', '강 선택')
 }
 
 /* ---------- 듣기 ---------- */
 
-function picked() { return segs.filter(s => sel.has(s.lesson)) }   // segments.json이 이미 진도 순서
+// segments.json이 이미 진도 순서라 filter만으로 순서가 유지된다.
+// 찜도 '강' 하나로 취급하면 듣기·퀴즈·시험이 전부 이 함수 하나만 보면 된다.
+function picked() {
+  return segs.filter(s => sel.has(s.lesson)
+                       || (sel.has('★') && star.has(s.seq))
+                       || (sel.has('✕') && weak.has(s.seq)))
+}
 
 $('go').onclick = () => {
   cur = picked()
-  show('list', `${sel.size}강 · ${cur.length}단어`)
+  show('list', `${cur.length}단어`)
   $('list').replaceChildren(...cur.map((s, n) => {
     const li = document.createElement('li')
-    li.innerHTML = `<div class="w">${esc(s.word)} <span class="lz">${s.lesson}</span></div>
-                    <div class="m">${esc(s.meaning)}</div>`
+    const txt = document.createElement('div'); txt.className = 'txt'
+    txt.innerHTML = `<div class="w">${esc(s.word)} <span class="lz">${s.lesson}</span></div>
+                     <div class="m">${esc(s.meaning)}</div>`
+    li.append(starBtn(s.seq), txt)
     li.onclick = () => play(n)
     return li
   }))
@@ -267,6 +481,7 @@ function answer(btn, chosen) {
   }
   if (right) hit++
   else { btn.classList.add('no'); miss.push(q) }
+  logAttempt(q.src.seq, right, '퀴즈')
   qi++
   setTimeout(askQ, right ? 700 : 1800)
 }
@@ -278,10 +493,12 @@ function showResult() {
     `<div class="qmeta">${qs.length}문제</div>
      <div class="qscore">${hit} / ${qs.length} · ${pct}%</div>
      ${miss.length ? '<div class="qmeta">틀린 것</div>' : ''}
-     ${miss.map(q => `<div class="qwrong"><div class="w">${esc(q.src.word)}
-        <span class="lz">${q.src.lesson}</span></div>
-        <div class="m">${esc(q.src.meaning)}</div></div>`).join('')}
+     ${miss.map(q => `<div class="qwrong" data-seq="${q.src.seq}"><div class="txt">
+        <div class="w">${esc(q.src.word)} <span class="lz">${q.src.lesson}</span></div>
+        <div class="m">${esc(q.src.meaning)}</div></div></div>`).join('')}
      <p><button id="again">다시 풀기</button></p>`
+  // 방금 틀린 게 곧 '안 외워지는 단어'다. 목록으로 되돌아가 찾게 하지 않는다.
+  for (const d of $('quiz').querySelectorAll('.qwrong')) d.prepend(starBtn(+d.dataset.seq))
   $('again').onclick = () => $('quizgo').onclick()
 }
 
@@ -422,8 +639,20 @@ function grade() {
     })
     paintRow(q)
   }
+  logExam()
   paintScore()
   scrollTo(0, 0)
+}
+
+// 한 번에 넣고 id 를 돌려받는다. 한 세트 안에서 seq 는 겹치지 않으므로
+// 반환 순서에 기대지 않고 seq 로 짝지을 수 있다.
+async function logExam() {
+  if (!me) return
+  const { data } = await sb.from('attempts')
+    .insert(exam.map(q => ({ seq: q.src.seq, ok: q.ok, mode: '시험' })))
+    .select('id, seq')
+  const bySeq = new Map((data ?? []).map(r => [r.seq, r.id]))
+  for (const q of exam) q.attemptId = bySeq.get(q.src.seq)
 }
 
 function paintRow(q) {
@@ -433,12 +662,19 @@ function paintRow(q) {
   const ans = document.createElement('span'); ans.className = 'm'
   ans.textContent = '정답: ' + q.answer
   q.res.replaceChildren(mark, ans)
-  if (q.kind !== '주관식') return
-  // 유의어는 자동 채점이 못 잡는다 → 본인이 뒤집는다
-  const flip = document.createElement('button')
-  flip.textContent = q.ok ? '오답으로' : '정답으로'
-  flip.onclick = () => { q.ok = !q.ok; paintRow(q); paintScore() }
-  q.res.append(flip)
+  if (q.kind === '주관식') {
+    // 유의어는 자동 채점이 못 잡는다 → 본인이 뒤집는다
+    const flip = document.createElement('button')
+    flip.textContent = q.ok ? '오답으로' : '정답으로'
+    flip.onclick = () => {
+      q.ok = !q.ok
+      // 자동 채점을 사람이 뒤집었으면 그게 진짜 결과다. 이력도 따라 고친다
+      if (q.attemptId) sb.from('attempts').update({ ok: q.ok }).eq('id', q.attemptId).then(null, () => {})
+      paintRow(q); paintScore()
+    }
+    q.res.append(flip)
+  }
+  q.res.append(starBtn(q.src.seq))
 }
 
 function paintScore() {
