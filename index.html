@@ -5,6 +5,17 @@
 <!-- 파일 없이 data URI 로 박는다. 요청이 하나 줄고 favicon.ico 404 도 없어진다.
      글자는 path 라서 기기에 어떤 폰트가 깔렸든 똑같이 그려진다. # 는 %23 로 써야 한다 -->
 <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="%236c4cf1"/><path d="M10.6 7.4V24.6" stroke="%23fff" stroke-width="4.2" stroke-linecap="round"/><path d="M21.9 7.6 11.6 16.3 22.3 24.4" fill="none" stroke="%23fff" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/></svg>'>
+
+<!-- 링크 미리보기. og:image 는 절대 URL 이어야 하고 SVG 는 안 된다 -
+     카카오톡을 비롯한 크롤러 대부분이 SVG 를 렌더하지 않는다. 그래서 파비콘과 달리 PNG 파일이다 -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://koo-toeic.vercel.app/">
+<meta property="og:title" content="토익영단어">
+<meta property="og:description" content="경선식 토익영단어 2190개를 강의 음원과 함께. 찜한 단어와 자주 틀리는 단어만 골라 듣는다.">
+<meta property="og:image" content="https://koo-toeic.vercel.app/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
 <style>
   /* 시스템 색(Canvas/CanvasText)에 맡기면 인앱 브라우저에서 배경만 밝게 칠해지고
      글자는 다크용 흰색으로 잡혀 흰 글자가 흰 배경에 묻힌다. 명시적으로 지정한다. */
