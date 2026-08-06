@@ -96,16 +96,23 @@ function play(n) {
   $('au').play()
 }
 
-// ponytail: timeupdate는 ~250ms 간격이라 끝이 그만큼 넘칠 수 있다.
-// 클립 사이가 1초 무음이라 실사용엔 안 걸린다. 거슬리면 requestAnimationFrame으로.
-$('au').ontimeupdate = () => {
+// timeupdate는 ~250ms 간격이라 끝을 넘겨 다음 단어가 새어 나온다.
+// 화면이 켜져 있을 땐 rAF(~16ms)로 정확히 끊고, 백그라운드에선 rAF가 멈추므로
+// timeupdate를 예비로 남긴다.
+let raf = 0
+function check() {
   const s = cur[i]
   // currentTime < start 는 seek이 아직 안 끝난 상태 (앞 단어로 되돌아갈 때)
-  if (!s || $('au').currentTime < s.start || $('au').currentTime < s.end) return
+  if (!s || $('au').currentTime < s.start || $('au').currentTime < s.end) return false
   $('au').pause()
-  if ($('twice').checked && ++plays < 2) { seek(s.start); return $('au').play() }
-  if ($('loop').checked && i + 1 < cur.length) play(i + 1)
+  cancelAnimationFrame(raf)
+  if ($('twice').checked && ++plays < 2) { seek(s.start); $('au').play() }
+  else if ($('loop').checked && i + 1 < cur.length) play(i + 1)
+  return true
 }
+function tick() { if (!$('au').paused && !check()) raf = requestAnimationFrame(tick) }
+$('au').onplay = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(tick) }
+$('au').ontimeupdate = check
 
 onkeydown = e => {
   if (e.key === ' ') { e.preventDefault(); $('au').paused ? $('au').play() : $('au').pause() }

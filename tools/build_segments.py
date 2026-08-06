@@ -4,7 +4,7 @@
 import json, re, subprocess, collections, sys
 
 BASE = '/Users/koo/Downloads/words'
-PAD = 0.15          # 잘림 방지용 앞뒤 여유
+LEAD, TAIL = 0.10, 0.25   # 소리 시작 앞 / 끝 뒤로 남길 여유
 
 def probe(f):
     return float(subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
@@ -33,7 +33,8 @@ for lesson, ws in sorted(by_lesson.items(), key=lambda kv: kv[1][0]['seq']):
         report.append((lesson, len(ws), None, None, 'mp3 없음'))
         continue
 
-    inner = [(a, b) for a, b in silences(mp3) if a > 0.3 and b < total - 0.3]
+    allsil = silences(mp3)
+    inner = [(a, b) for a, b in allsil if a > 0.3 and b < total - 0.3]
     need = len(ws) - 1
     ranked = sorted(inner, key=lambda g: g[1] - g[0], reverse=True)
     picked = sorted(ranked[:need])
@@ -41,10 +42,15 @@ for lesson, ws in sorted(by_lesson.items(), key=lambda kv: kv[1][0]['seq']):
     margin = ((ranked[need - 1][1] - ranked[need - 1][0]) - (ranked[need][1] - ranked[need][0])
               if len(ranked) > need and need > 0 else None)
 
-    cuts = [0.0] + [(a + b) / 2 for a, b in picked] + [total]
+    # 무음 한가운데가 아니라 소리가 실제로 시작/끝나는 지점을 경계로 삼는다.
+    # 파일 맨 앞뒤 무음도 같은 방식으로 걷어낸다.
+    head = [b for a, b in allsil if a <= 0.3]
+    foot = [a for a, b in allsil if b >= total - 0.3]
+    onsets = [head[0] if head else 0.0] + [b for _, b in picked]
+    offsets = [a for a, _ in picked] + [foot[-1] if foot else total]
     lens = []
-    for w, s, e in zip(ws, cuts, cuts[1:]):
-        s, e = max(0.0, s - PAD), min(total, e + PAD)
+    for w, s, e in zip(ws, onsets, offsets):
+        s, e = max(0.0, s - LEAD), min(total, e + TAIL)
         segs.append({**w, 'file': mp3.split('/')[-1], 'start': round(s, 2), 'end': round(e, 2)})
         lens.append(e - s)
     report.append((lesson, len(ws), round(margin, 2) if margin else None,
