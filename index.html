@@ -10,13 +10,12 @@
   body { margin: 0; background: var(--bg); color: var(--fg);
          font: 16px/1.5 -apple-system, sans-serif; }
   header { position: sticky; top: 0; padding: 12px 16px; border-bottom: 1px solid var(--line);
-           background: var(--bg); display: flex; gap: 12px; align-items: center; }
+           background: var(--bg); display: flex; gap: 10px; align-items: center; }
   h1 { font-size: 17px; margin: 0; flex: 1; }
   button { font: inherit; padding: 6px 12px; border: 1px solid var(--line);
            border-radius: 8px; background: none; color: var(--fg); cursor: pointer; }
   button[disabled] { opacity: .35; cursor: default; }
   button.sel { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .lz { font-size: 12px; opacity: .6; }
   #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
           gap: 8px; padding: 16px; }
   ol { list-style: none; margin: 0; padding: 0 }
@@ -24,69 +23,105 @@
   li.on { background: #6c4cf126; }
   .w { font-size: 19px; font-weight: 600; }
   .m { opacity: .75; font-size: 14px; }
+  .lz { font-size: 12px; opacity: .6; }
   label { display: flex; gap: 5px; align-items: center; font-size: 14px; }
+
+  #quiz { padding: 20px 16px 48px; max-width: 560px; margin: 0 auto; }
+  .qmeta { font-size: 13px; opacity: .6; }
+  .qtype { font-size: 13px; color: var(--accent); margin-top: 16px; }
+  .qprompt { font-size: 25px; font-weight: 700; margin: 4px 0 24px; line-height: 1.35; }
+  #qopts { display: grid; gap: 10px; }
+  #qopts button { text-align: left; padding: 13px 15px; }
+  #qopts button.ok { background: #1f9d5533; border-color: #1f9d55; }
+  #qopts button.no { background: #e0333333; border-color: #e03333; }
+  .qscore { font-size: 30px; font-weight: 700; margin: 8px 0 20px; }
+  .qwrong { padding: 10px 0; border-bottom: 1px solid var(--line); }
 </style>
 
 <header>
   <button id="back" hidden>←</button>
   <h1 id="title">강 선택</h1>
   <button id="go" disabled>▶ 선택 듣기</button>
-  <label><input type="checkbox" id="loop" checked>이어듣기</label>
-  <label><input type="checkbox" id="twice">2회</label>
+  <button id="quizgo" disabled>퀴즈</button>
+  <label id="optloop"><input type="checkbox" id="loop" checked>이어듣기</label>
+  <label id="opttwice"><input type="checkbox" id="twice">2회</label>
 </header>
 <div id="grid"></div>
 <ol id="list"></ol>
+<div id="quiz" hidden></div>
 <audio id="au"></audio>
 
 <script>
 const $ = id => document.getElementById(id)
+// 뜻에 '<시기 등이>' 같은 꺾쇠가 들어있다 (over, 68강). 태그로 먹히면 글자가 사라진다.
+const esc = s => s.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]))
 let segs = [], cur = [], i = -1, plays = 0, file = null
 const sel = new Set()
-
-// src 지정 직후엔 아직 메타데이터가 없어 seek이 무시된다 → 로드된 뒤에 건다
-function seek(t) {
-  if ($('au').readyState >= 1) $('au').currentTime = t
-  else $('au').addEventListener('loadedmetadata', () => $('au').currentTime = t, { once: true })
-}
+// 철자 → 그 철자가 갖는 모든 뜻 / 뜻 → 그 뜻을 갖는 모든 철자.
+// raise 처럼 한 철자가 여러 뜻으로 쪼개져 있으면 보기끼리 다 정답이 되어버리므로
+// 문제를 만들 때 이 집합을 통째로 보기에서 뺀다.
+const meaningsOf = new Map(), wordsOf = new Map()
 
 fetch('segments.json').then(r => r.json()).then(d => {
   segs = d
+  for (const s of segs) {
+    if (!meaningsOf.has(s.word)) meaningsOf.set(s.word, new Set())
+    if (!wordsOf.has(s.meaning)) wordsOf.set(s.meaning, new Set())
+    meaningsOf.get(s.word).add(s.meaning)
+    wordsOf.get(s.meaning).add(s.word)
+  }
   $('grid').append(...[...new Set(segs.map(s => s.lesson))].map(L => {
     const b = document.createElement('button')
     b.textContent = L
     b.onclick = () => {
       sel.has(L) ? sel.delete(L) : sel.add(L)
       b.classList.toggle('sel', sel.has(L))
-      $('go').disabled = !sel.size
+      $('go').disabled = $('quizgo').disabled = !sel.size
       $('go').textContent = sel.size ? `▶ 선택 듣기 (+${sel.size})` : '▶ 선택 듣기'
     }
     return b
   }))
 })
 
+function screen(name, title) {
+  $('au').pause()
+  $('title').textContent = title
+  $('grid').hidden = name !== 'grid'
+  $('list').hidden = name !== 'list'
+  $('quiz').hidden = name !== 'quiz'
+  $('back').hidden = name === 'grid'
+  $('go').hidden = $('quizgo').hidden = name !== 'grid'
+  $('optloop').hidden = $('opttwice').hidden = name !== 'list'
+}
+
+$('back').onclick = () => {
+  i = -1
+  $('list').replaceChildren()
+  $('quiz').replaceChildren()
+  screen('grid', '강 선택')
+}
+
+/* ---------- 듣기 ---------- */
+
+function picked() { return segs.filter(s => sel.has(s.lesson)) }   // segments.json이 이미 진도 순서
+
 $('go').onclick = () => {
-  cur = segs.filter(s => sel.has(s.lesson))     // segments.json이 이미 진도 순서
-  $('title').textContent = `${sel.size}강 · ${cur.length}단어`
-  $('grid').hidden = true
-  $('go').hidden = true
-  $('back').hidden = false
+  cur = picked()
+  screen('list', `${sel.size}강 · ${cur.length}단어`)
   $('list').replaceChildren(...cur.map((s, n) => {
     const li = document.createElement('li')
-    li.innerHTML = `<div class="w">${s.word} <span class="lz">${s.lesson}</span></div>
-                    <div class="m">${s.meaning}</div>`
+    li.innerHTML = `<div class="w">${esc(s.word)} <span class="lz">${s.lesson}</span></div>
+                    <div class="m">${esc(s.meaning)}</div>`
     li.onclick = () => play(n)
     return li
   }))
   play(0)
 }
 
-$('back').onclick = () => {
-  $('au').pause(); i = -1
-  $('list').replaceChildren()
-  $('grid').hidden = false
-  $('go').hidden = false
-  $('back').hidden = true
-  $('title').textContent = '강 선택'
+// src 지정 직후엔 아직 메타데이터가 없어 seek이 무시된다 → 로드된 뒤에 건다
+function seek(t) {
+  if ($('au').readyState >= 1) $('au').currentTime = t
+  else $('au').addEventListener('loadedmetadata', () => $('au').currentTime = t, { once: true })
 }
 
 function play(n) {
@@ -107,7 +142,8 @@ let raf = 0
 function check() {
   const s = cur[i]
   // currentTime < start 는 seek이 아직 안 끝난 상태 (앞 단어로 되돌아갈 때)
-  if (!s || $('au').currentTime < s.start || $('au').currentTime < s.end) return false
+  if (!s || $('quiz').hidden === false) return false
+  if ($('au').currentTime < s.start || $('au').currentTime < s.end) return false
   $('au').pause()
   cancelAnimationFrame(raf)
   if ($('twice').checked && ++plays < 2) { seek(s.start); $('au').play() }
@@ -119,8 +155,101 @@ $('au').onplay = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(
 $('au').ontimeupdate = check
 
 onkeydown = e => {
+  if ($('list').hidden) return
   if (e.key === ' ') { e.preventDefault(); $('au').paused ? $('au').play() : $('au').pause() }
   if (e.key === 'ArrowDown') play(i + 1)
   if (e.key === 'ArrowUp') play(i - 1)
+}
+
+/* ---------- 퀴즈 ---------- */
+
+let qs = [], qi = 0, hit = 0, miss = []
+
+function shuffle(a) {
+  for (let k = a.length - 1; k > 0; k--) {
+    const j = Math.floor(Math.random() * (k + 1))
+    ;[a[k], a[j]] = [a[j], a[k]]
+  }
+  return a
+}
+
+// 정답과 헷갈릴 수 있는 값(ban)을 뺀 뒤 서로 다른 보기 3개를 뽑는다.
+// 선택한 강 안에서 먼저 찾고, 모자라면 전체에서 채운다.
+function distractors(pool, valueOf, ban) {
+  const out = []
+  for (const src of [pool, segs]) {
+    for (const c of shuffle(src.slice())) {
+      const v = valueOf(c)
+      if (ban.has(v)) continue
+      ban.add(v); out.push(v)
+      if (out.length === 3) return out
+    }
+  }
+  return out
+}
+
+function makeQ(e, pool) {
+  if (Math.random() < 0.5) {
+    // 단어 → 뜻. 같은 철자가 갖는 뜻은 전부 정답이 될 수 있으므로 통째로 배제
+    const ban = new Set(meaningsOf.get(e.word))
+    return { type: '뜻 고르기', prompt: e.word, answer: e.meaning,
+             opts: shuffle([e.meaning, ...distractors(pool, c => c.meaning, ban)]) }
+  }
+  // 뜻 → 단어. 같은 뜻을 갖는 철자는 전부 정답이 될 수 있으므로 통째로 배제
+  const ban = new Set(wordsOf.get(e.meaning))
+  return { type: '단어 고르기', prompt: e.meaning, answer: e.word,
+           opts: shuffle([e.word, ...distractors(pool, c => c.word, ban)]) }
+}
+
+$('quizgo').onclick = () => {
+  const pool = picked()
+  qs = shuffle(pool.slice()).map(e => ({ ...makeQ(e, pool), src: e }))
+  qi = 0; hit = 0; miss = []
+  screen('quiz', `퀴즈 · ${qs.length}문제`)
+  askQ()
+}
+
+function askQ() {
+  const q = qs[qi]
+  if (!q) return showResult()
+  $('quiz').innerHTML =
+    `<div class="qmeta">${qi + 1} / ${qs.length} · 맞음 ${hit} · 틀림 ${miss.length}</div>
+     <div class="qtype">${q.type}</div>
+     <div class="qprompt"></div>
+     <div id="qopts"></div>`
+  $('quiz').querySelector('.qprompt').textContent = q.prompt
+  $('qopts').append(...q.opts.map(o => {
+    const b = document.createElement('button')
+    b.textContent = o
+    b.onclick = () => answer(b, o)
+    return b
+  }))
+}
+
+function answer(btn, chosen) {
+  const q = qs[qi]
+  const right = chosen === q.answer
+  for (const b of $('qopts').children) {
+    b.onclick = null
+    if (b.textContent === q.answer) b.classList.add('ok')
+  }
+  if (right) hit++
+  else { btn.classList.add('no'); miss.push(q) }
+  qi++
+  setTimeout(askQ, right ? 700 : 1800)
+}
+
+function showResult() {
+  screen('quiz', '퀴즈 결과')
+  const pct = Math.round(hit / qs.length * 100)
+  $('quiz').innerHTML =
+    `<div class="qmeta">${qs.length}문제</div>
+     <div class="qscore">${hit} / ${qs.length} · ${pct}%</div>
+     ${miss.length ? '<div class="qmeta">틀린 것</div>' : ''}
+     ${miss.map(q => `<div class="qwrong"><div class="w">${esc(q.src.word)}
+        <span class="lz">${q.src.lesson}</span></div>
+        <div class="m">${esc(q.src.meaning)}</div></div>`).join('')}
+     <p><button id="again">다시 풀기</button></p>`
+  $('again').onclick = () => $('quizgo').onclick()
 }
 </script>
