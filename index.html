@@ -422,18 +422,19 @@ function check() {
   const stop = $('wordonly').checked ? s.wordEnd : s.end   // 뜻 빼고 영단어만
   // currentTime < start 는 seek이 아직 안 끝난 상태 (앞 단어로 되돌아갈 때)
   if ($('au').currentTime < s.start || $('au').currentTime < stop) return false
+  // 배경: 안 끊는다. 마지막 단어도 파일 끝까지 흘려보내면 ended가 처음으로 되돌린다
   if (document.hidden && $('loop').checked && !$('twice').checked
-                      && !$('wordonly').checked && flows(i)) return false   // 배경: 안 끊는다
+                      && !$('wordonly').checked && (flows(i) || !cur[i + 1])) return false
   $('au').pause()
   cancelAnimationFrame(raf)
   if ($('twice').checked && ++plays < 2) { seek(s.start); $('au').play() }
-  else if ($('loop').checked && i + 1 < cur.length) play(i + 1)
+  else if ($('loop').checked) play((i + 1) % cur.length)   // 끝까지 가면 처음부터 무한 반복
   return true
 }
 function tick() { if (!$('au').paused && !check()) raf = requestAnimationFrame(tick) }
 $('au').onplay = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(tick) }
 $('au').ontimeupdate = check
-$('au').onended = () => { if (!$('list').hidden && $('loop').checked) play(i + 1) }
+$('au').onended = () => { if (!$('list').hidden && $('loop').checked) play((i + 1) % cur.length) }
 
 onkeydown = e => {
   if ($('list').hidden) return
