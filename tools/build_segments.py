@@ -10,6 +10,13 @@ def probe(f):
     return float(subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
                                  '-of', 'csv=p=0', f], capture_output=True, text=True).stdout)
 
+def word_end(allsil, s, e):
+    """클립은 [영단어][영단어 반복][뜻...] 구조다. 앞 두 덩어리는 영단어 글자수와
+    상관 0.6~0.8, 세 번째부터는 뜻 글자수와 상관 0.7~0.9. 두 번째 덩어리 끝까지가 영단어."""
+    gaps = [(a, b) for a, b in allsil if s < a and b < e]
+    return min(e, gaps[1][0] + TAIL) if len(gaps) >= 2 else e
+
+
 def silences(f):
     out = subprocess.run(['ffmpeg', '-hide_banner', '-i', f, '-af',
                           'silencedetect=noise=-70dB:d=0.25', '-f', 'null', '-'],
@@ -51,7 +58,8 @@ for lesson, ws in sorted(by_lesson.items(), key=lambda kv: kv[1][0]['seq']):
     lens = []
     for w, s, e in zip(ws, onsets, offsets):
         s, e = max(0.0, s - LEAD), min(total, e + TAIL)
-        segs.append({**w, 'file': mp3.split('/')[-1], 'start': round(s, 2), 'end': round(e, 2)})
+        segs.append({**w, 'file': mp3.split('/')[-1], 'start': round(s, 2), 'end': round(e, 2),
+                     'wordEnd': round(word_end(allsil, s, e), 2)})
         lens.append(e - s)
     report.append((lesson, len(ws), round(margin, 2) if margin else None,
                    (round(min(lens), 1), round(max(lens), 1)), 'ok'))

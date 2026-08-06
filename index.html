@@ -52,6 +52,7 @@
   <button id="quizgo" disabled>퀴즈</button>
   <label id="optloop"><input type="checkbox" id="loop" checked>이어듣기</label>
   <label id="opttwice"><input type="checkbox" id="twice">2회</label>
+  <label id="optword"><input type="checkbox" id="wordonly">단어만</label>
 </header>
 <div id="grid"></div>
 <ol id="list"></ol>
@@ -98,7 +99,7 @@ function show(name, title) {
   $('quiz').hidden = name !== 'quiz'
   $('back').hidden = name === 'grid'
   $('go').hidden = $('quizgo').hidden = name !== 'grid'
-  $('optloop').hidden = $('opttwice').hidden = name !== 'list'
+  $('optloop').hidden = $('opttwice').hidden = $('optword').hidden = name !== 'list'
 }
 
 $('back').onclick = () => {
@@ -150,7 +151,8 @@ function check() {
   const s = cur[i]
   // currentTime < start 는 seek이 아직 안 끝난 상태 (앞 단어로 되돌아갈 때)
   if (!s || $('quiz').hidden === false) return false
-  if ($('au').currentTime < s.start || $('au').currentTime < s.end) return false
+  const stop = $('wordonly').checked ? s.wordEnd : s.end   // 뜻 빼고 영단어만
+  if ($('au').currentTime < s.start || $('au').currentTime < stop) return false
   $('au').pause()
   cancelAnimationFrame(raf)
   if ($('twice').checked && ++plays < 2) { seek(s.start); $('au').play() }
