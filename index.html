@@ -387,23 +387,43 @@ function play(n) {
   const s = cur[n]
   if (!s) return
   i = n; plays = 0
-  ;[...$('list').children].forEach((li, k) => li.classList.toggle('on', k === n))
-  $('list').children[n].scrollIntoView({ block: 'center', behavior: 'smooth' })
+  mark(n)
   if (file !== s.file) { file = s.file; $('au').src = 'mp3/' + s.file }
   seek(s.start)
   $('au').play()
 }
 
+// 재생 중인 줄 표시. 화면이 꺼져 있으면 스크롤은 돌아왔을 때 몰아서 한다
+function mark(n) {
+  ;[...$('list').children].forEach((li, k) => li.classList.toggle('on', k === n))
+  if (!document.hidden) $('list').children[n].scrollIntoView({ block: 'center', behavior: 'smooth' })
+}
+document.onvisibilitychange = () => {
+  if (!document.hidden && !$('list').hidden && cur[i]) mark(i)
+}
+
 // timeupdate는 ~250ms 간격이라 끝을 넘겨 다음 단어가 새어 나온다.
 // 화면이 켜져 있을 땐 rAF(~16ms)로 정확히 끊고, 백그라운드에선 rAF가 멈추므로
 // timeupdate를 예비로 남긴다.
+// 백그라운드에선 그마저 못 믿는다: 잠금 화면·인앱 브라우저는 숨은 페이지의 play()를
+// 막아서, 단어 끝에서 pause()하면 거기서 영영 침묵한다. 그래서 다음 단어가 같은
+// 파일에서 바로 이어지면 끊지 않고 흘려보내며 목록 위치만 따라가고(어차피 원본
+// mp3가 그 순서다), 파일 끝만 ended에서 잇는다 — 미디어 이벤트 안의 재생 전환은
+// 잠금 화면에서도 허용된다.
 let raf = 0
+// 다음 항목이 같은 파일에서 바로 이어지는가. 단어 사이 무음은 1초를 넘지 않는다
+const flows = n => cur[n + 1] && cur[n + 1].file === cur[n].file
+                             && cur[n + 1].start - cur[n].end < 1.5
 function check() {
+  if (!cur[i] || $('quiz').hidden === false) return false
+  // 흘려보낸(또는 잠금에서 막 돌아온) 만큼 위치를 따라잡는다
+  while (flows(i) && $('au').currentTime >= cur[i + 1].start) { i++; plays = 0; mark(i) }
   const s = cur[i]
-  // currentTime < start 는 seek이 아직 안 끝난 상태 (앞 단어로 되돌아갈 때)
-  if (!s || $('quiz').hidden === false) return false
   const stop = $('wordonly').checked ? s.wordEnd : s.end   // 뜻 빼고 영단어만
+  // currentTime < start 는 seek이 아직 안 끝난 상태 (앞 단어로 되돌아갈 때)
   if ($('au').currentTime < s.start || $('au').currentTime < stop) return false
+  if (document.hidden && $('loop').checked && !$('twice').checked
+                      && !$('wordonly').checked && flows(i)) return false   // 배경: 안 끊는다
   $('au').pause()
   cancelAnimationFrame(raf)
   if ($('twice').checked && ++plays < 2) { seek(s.start); $('au').play() }
@@ -413,6 +433,7 @@ function check() {
 function tick() { if (!$('au').paused && !check()) raf = requestAnimationFrame(tick) }
 $('au').onplay = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(tick) }
 $('au').ontimeupdate = check
+$('au').onended = () => { if (!$('list').hidden && $('loop').checked) play(i + 1) }
 
 onkeydown = e => {
   if ($('list').hidden) return
