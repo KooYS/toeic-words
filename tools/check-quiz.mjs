@@ -18,7 +18,7 @@ for (const s of segs) {
 
 const el = () => ({ onclick: null, innerHTML: '', append() {}, querySelector: el, children: [] })
 const { makeQ } = new Function(
-  'segs', 'meaningsOf', 'wordsOf', '$', 'screen', 'picked',
+  'segs', 'meaningsOf', 'wordsOf', '$', 'show', 'picked',
   src + '; return { makeQ }'
 )(segs, meaningsOf, wordsOf, el, () => {}, () => segs)
 

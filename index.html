@@ -7,11 +7,15 @@
      글자는 다크용 흰색으로 잡혀 흰 글자가 흰 배경에 묻힌다. 명시적으로 지정한다. */
   :root { color-scheme: light dark; --bg: #fff; --fg: #111; --line: #8884; --accent: #6c4cf1; }
   @media (prefers-color-scheme: dark) { :root { --bg: #111; --fg: #eaeaea; } }
+  /* display를 직접 준 요소(label:flex, #grid:grid)는 브라우저 기본 [hidden]을 이겨버린다 */
+  [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--fg);
          font: 16px/1.5 -apple-system, sans-serif; }
-  header { position: sticky; top: 0; padding: 12px 16px; border-bottom: 1px solid var(--line);
-           background: var(--bg); display: flex; gap: 10px; align-items: center; }
-  h1 { font-size: 17px; margin: 0; flex: 1; }
+  header { position: sticky; top: 0; padding: 10px 14px; border-bottom: 1px solid var(--line);
+           background: var(--bg); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  /* 좁으면 줄바꿈으로 흘러가되, 항목 안에서 글자가 쪼개지지는 않게 */
+  header > * { white-space: nowrap; }
+  h1 { font-size: 17px; margin: 0; margin-right: auto; }
   button { font: inherit; padding: 6px 12px; border: 1px solid var(--line);
            border-radius: 8px; background: none; color: var(--fg); cursor: pointer; }
   button[disabled] { opacity: .35; cursor: default; }
@@ -25,6 +29,7 @@
   .m { opacity: .75; font-size: 14px; }
   .lz { font-size: 12px; opacity: .6; }
   label { display: flex; gap: 5px; align-items: center; font-size: 14px; }
+  header button { padding: 6px 10px; }
 
   #quiz { padding: 20px 16px 48px; max-width: 560px; margin: 0 auto; }
   .qmeta { font-size: 13px; opacity: .6; }
@@ -83,7 +88,7 @@ fetch('segments.json').then(r => r.json()).then(d => {
   }))
 })
 
-function screen(name, title) {
+function show(name, title) {
   $('au').pause()
   $('title').textContent = title
   $('grid').hidden = name !== 'grid'
@@ -98,7 +103,7 @@ $('back').onclick = () => {
   i = -1
   $('list').replaceChildren()
   $('quiz').replaceChildren()
-  screen('grid', '강 선택')
+  show('grid', '강 선택')
 }
 
 /* ---------- 듣기 ---------- */
@@ -107,7 +112,7 @@ function picked() { return segs.filter(s => sel.has(s.lesson)) }   // segments.j
 
 $('go').onclick = () => {
   cur = picked()
-  screen('list', `${sel.size}강 · ${cur.length}단어`)
+  show('list', `${sel.size}강 · ${cur.length}단어`)
   $('list').replaceChildren(...cur.map((s, n) => {
     const li = document.createElement('li')
     li.innerHTML = `<div class="w">${esc(s.word)} <span class="lz">${s.lesson}</span></div>
@@ -205,7 +210,7 @@ $('quizgo').onclick = () => {
   const pool = picked()
   qs = shuffle(pool.slice()).map(e => ({ ...makeQ(e, pool), src: e }))
   qi = 0; hit = 0; miss = []
-  screen('quiz', `퀴즈 · ${qs.length}문제`)
+  show('quiz', `퀴즈 · ${qs.length}문제`)
   askQ()
 }
 
@@ -240,7 +245,7 @@ function answer(btn, chosen) {
 }
 
 function showResult() {
-  screen('quiz', '퀴즈 결과')
+  show('quiz', '퀴즈 결과')
   const pct = Math.round(hit / qs.length * 100)
   $('quiz').innerHTML =
     `<div class="qmeta">${qs.length}문제</div>
@@ -252,4 +257,6 @@ function showResult() {
      <p><button id="again">다시 풀기</button></p>`
   $('again').onclick = () => $('quizgo').onclick()
 }
+
+show('grid', '강 선택')   // 초기 화면도 같은 규칙으로 (안 하면 듣기 옵션이 강 선택에 남는다)
 </script>
