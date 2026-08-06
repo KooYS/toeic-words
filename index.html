@@ -1,0 +1,115 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>토익영단어</title>
+<style>
+  :root { color-scheme: light dark; --line: #8883; --accent: #6c4cf1; }
+  body { margin: 0; font: 16px/1.5 -apple-system, sans-serif; }
+  header { position: sticky; top: 0; padding: 12px 16px; border-bottom: 1px solid var(--line);
+           background: Canvas; display: flex; gap: 12px; align-items: center; }
+  h1 { font-size: 17px; margin: 0; flex: 1; }
+  button { font: inherit; padding: 6px 12px; border: 1px solid var(--line);
+           border-radius: 8px; background: none; color: inherit; cursor: pointer; }
+  button[disabled] { opacity: .35; cursor: default; }
+  button.sel { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .lz { font-size: 12px; opacity: .6; }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+          gap: 8px; padding: 16px; }
+  ol { list-style: none; margin: 0; padding: 0 }
+  li { padding: 12px 16px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  li.on { background: color-mix(in srgb, var(--accent) 15%, transparent); }
+  .w { font-size: 19px; font-weight: 600; }
+  .m { opacity: .75; font-size: 14px; }
+  label { display: flex; gap: 5px; align-items: center; font-size: 14px; }
+</style>
+
+<header>
+  <button id="back" hidden>←</button>
+  <h1 id="title">강 선택</h1>
+  <button id="go" disabled>▶ 선택 듣기</button>
+  <label><input type="checkbox" id="loop" checked>이어듣기</label>
+  <label><input type="checkbox" id="twice">2회</label>
+</header>
+<div id="grid"></div>
+<ol id="list"></ol>
+<audio id="au"></audio>
+
+<script>
+const $ = id => document.getElementById(id)
+let segs = [], cur = [], i = -1, plays = 0, file = null
+const sel = new Set()
+
+// src 지정 직후엔 아직 메타데이터가 없어 seek이 무시된다 → 로드된 뒤에 건다
+function seek(t) {
+  if ($('au').readyState >= 1) $('au').currentTime = t
+  else $('au').addEventListener('loadedmetadata', () => $('au').currentTime = t, { once: true })
+}
+
+fetch('segments.json').then(r => r.json()).then(d => {
+  segs = d
+  $('grid').append(...[...new Set(segs.map(s => s.lesson))].map(L => {
+    const b = document.createElement('button')
+    b.textContent = L
+    b.onclick = () => {
+      sel.has(L) ? sel.delete(L) : sel.add(L)
+      b.classList.toggle('sel', sel.has(L))
+      $('go').disabled = !sel.size
+      $('go').textContent = sel.size ? `▶ 선택 듣기 (+${sel.size})` : '▶ 선택 듣기'
+    }
+    return b
+  }))
+})
+
+$('go').onclick = () => {
+  cur = segs.filter(s => sel.has(s.lesson))     // segments.json이 이미 진도 순서
+  $('title').textContent = `${sel.size}강 · ${cur.length}단어`
+  $('grid').hidden = true
+  $('go').hidden = true
+  $('back').hidden = false
+  $('list').replaceChildren(...cur.map((s, n) => {
+    const li = document.createElement('li')
+    li.innerHTML = `<div class="w">${s.word} <span class="lz">${s.lesson}</span></div>
+                    <div class="m">${s.meaning}</div>`
+    li.onclick = () => play(n)
+    return li
+  }))
+  play(0)
+}
+
+$('back').onclick = () => {
+  $('au').pause(); i = -1
+  $('list').replaceChildren()
+  $('grid').hidden = false
+  $('go').hidden = false
+  $('back').hidden = true
+  $('title').textContent = '강 선택'
+}
+
+function play(n) {
+  const s = cur[n]
+  if (!s) return
+  i = n; plays = 0
+  ;[...$('list').children].forEach((li, k) => li.classList.toggle('on', k === n))
+  $('list').children[n].scrollIntoView({ block: 'center', behavior: 'smooth' })
+  if (file !== s.file) { file = s.file; $('au').src = 'mp3/' + s.file }
+  seek(s.start)
+  $('au').play()
+}
+
+// ponytail: timeupdate는 ~250ms 간격이라 끝이 그만큼 넘칠 수 있다.
+// 클립 사이가 1초 무음이라 실사용엔 안 걸린다. 거슬리면 requestAnimationFrame으로.
+$('au').ontimeupdate = () => {
+  const s = cur[i]
+  // currentTime < start 는 seek이 아직 안 끝난 상태 (앞 단어로 되돌아갈 때)
+  if (!s || $('au').currentTime < s.start || $('au').currentTime < s.end) return
+  $('au').pause()
+  if ($('twice').checked && ++plays < 2) { seek(s.start); return $('au').play() }
+  if ($('loop').checked && i + 1 < cur.length) play(i + 1)
+}
+
+onkeydown = e => {
+  if (e.key === ' ') { e.preventDefault(); $('au').paused ? $('au').play() : $('au').pause() }
+  if (e.key === 'ArrowDown') play(i + 1)
+  if (e.key === 'ArrowUp') play(i - 1)
+}
+</script>
