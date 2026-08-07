@@ -51,6 +51,8 @@
           padding: 8px; margin: -8px; }
   .w { font-size: 19px; font-weight: 600; }
   .m { opacity: .75; font-size: 14px; }
+  /* 뜻 숨기기: 지우지 않고 뭉갠다. 줄 높이가 안 변해 목록이 안 출렁이고, 가려진 게 있다는 건 보인다 */
+  #list.nomean .m { filter: blur(7px); opacity: .35; }
   .lz { font-size: 12px; opacity: .6; }
   label { display: flex; gap: 5px; align-items: center; font-size: 14px; }
   header button { padding: 6px 10px; }
@@ -113,6 +115,7 @@
   <label id="optloop"><input type="checkbox" id="loop" checked>이어듣기</label>
   <label id="opttwice"><input type="checkbox" id="twice">2회</label>
   <label id="optword"><input type="checkbox" id="wordonly">단어만</label>
+  <label id="opthide"><input type="checkbox" id="hidemean">뜻 숨기기</label>
 </header>
 <div id="grid"></div>
 <ol id="list"></ol>
@@ -339,7 +342,7 @@ function show(name, title) {
   $('auth').hidden = name !== 'auth'
   $('back').hidden = name === 'grid'
   $('go').hidden = $('quizgo').hidden = $('examgo').hidden = $('acct').hidden = name !== 'grid'
-  $('optloop').hidden = $('opttwice').hidden = $('optword').hidden = name !== 'list'
+  $('optloop').hidden = $('opttwice').hidden = $('optword').hidden = $('opthide').hidden = name !== 'list'
 }
 
 $('back').onclick = () => {
@@ -446,6 +449,9 @@ function tick() { if (!$('au').paused && !check()) raf = requestAnimationFrame(t
 $('au').onplay = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(tick) }
 $('au').ontimeupdate = check
 $('au').onended = check   // 파일 끝(배경 전환·딥슬립 뒤 기상 포함)도 같은 규칙으로 잇는다
+
+// 뜻 숨기기: 단어만 보고 뜻을 떠올리는 연습용. 소리는 그대로라 몇 초 뒤 낭독이 정답을 준다
+$('hidemean').onchange = e => $('list').classList.toggle('nomean', e.target.checked)
 
 onkeydown = e => {
   if ($('list').hidden) return
