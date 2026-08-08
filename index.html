@@ -54,6 +54,11 @@
   /* 뜻 숨기기: 지우지 않고 뭉갠다. 줄 높이가 안 변해 목록이 안 출렁이고, 가려진 게 있다는 건 보인다 */
   #list.nomean .m { filter: blur(7px); opacity: .35; }
   .lz { font-size: 12px; opacity: .6; }
+  /* 플로팅 재생/일시정지. 스크롤 중에도 엄지가 닿는 자리 */
+  #pp { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom));
+        width: 54px; height: 54px; border-radius: 50%; font-size: 21px; line-height: 1;
+        color: var(--accent); background: var(--bg); box-shadow: 0 4px 14px #0004; z-index: 20; }
+  #list { padding-bottom: 84px; }   /* 마지막 줄이 버튼에 안 가리게 */
   label { display: flex; gap: 5px; align-items: center; font-size: 14px; }
   header button { padding: 6px 10px; }
 
@@ -123,6 +128,7 @@
 <div id="exam" hidden></div>
 <div id="auth" hidden></div>
 <audio id="au"></audio>
+<button id="pp" hidden>⏸︎</button>
 
 <!-- CDN 대신 저장소에 둔다. 인앱 브라우저에서 CDN이 막히면 앱 전체가 죽는다 -->
 <script src="vendor/supabase.js"></script>
@@ -342,7 +348,8 @@ function show(name, title) {
   $('auth').hidden = name !== 'auth'
   $('back').hidden = name === 'grid'
   $('go').hidden = $('quizgo').hidden = $('examgo').hidden = $('acct').hidden = name !== 'grid'
-  $('optloop').hidden = $('opttwice').hidden = $('optword').hidden = $('opthide').hidden = name !== 'list'
+  $('optloop').hidden = $('opttwice').hidden = $('optword').hidden = $('opthide').hidden =
+    $('pp').hidden = name !== 'list'
 }
 
 $('back').onclick = () => {
@@ -426,7 +433,7 @@ function check() {
   // ended를 일으킨다 — ended 핸들러 안의 재생 전환이 잠금 화면이 허용하는 통로다.
   if (document.hidden && $('loop').checked) {
     const n = (i + 1) % cur.length
-    if ($('au').paused) { play(n); return true }             // ended를 거쳐 왔다
+    if ($('au').paused || $('au').ended) { play(n); return true }   // ended를 거쳐 왔다
     if ($('twice').checked && ++plays < 2) { seek(s.start); return false }
     if (cur[n].file !== s.file) {
       // 딱 duration으로 seek하면 ended가 안 오고 끝 프레임에 걸린다 → 조금 앞에서 자연히 닿게
@@ -446,16 +453,27 @@ function check() {
   return true
 }
 function tick() { if (!$('au').paused && !check()) raf = requestAnimationFrame(tick) }
-$('au').onplay = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(tick) }
+$('au').onplay = () => { $('pp').textContent = '⏸︎'; cancelAnimationFrame(raf); raf = requestAnimationFrame(tick) }
 $('au').ontimeupdate = check
 $('au').onended = check   // 파일 끝(배경 전환·딥슬립 뒤 기상 포함)도 같은 규칙으로 잇는다
+// 단어 넘김의 pause→play 순간엔 이벤트가 닿을 때 이미 다시 재생 중이라 ▶로 안 바뀐다
+$('au').onpause = () => { $('pp').textContent = $('au').paused ? '▶︎' : '⏸︎' }
+
+// 재생/일시정지. 단어 끝에서 멈춘 채 다시 누르면 그 단어 처음부터
+function toggle() {
+  if (!$('au').paused) return $('au').pause()
+  const s = cur[i]
+  if (s && $('au').currentTime >= ($('wordonly').checked ? s.wordEnd : s.end)) return play(i)
+  $('au').play()
+}
+$('pp').onclick = toggle
 
 // 뜻 숨기기: 단어만 보고 뜻을 떠올리는 연습용. 소리는 그대로라 몇 초 뒤 낭독이 정답을 준다
 $('hidemean').onchange = e => $('list').classList.toggle('nomean', e.target.checked)
 
 onkeydown = e => {
   if ($('list').hidden) return
-  if (e.key === ' ') { e.preventDefault(); $('au').paused ? $('au').play() : $('au').pause() }
+  if (e.key === ' ') { e.preventDefault(); toggle() }
   if (e.key === 'ArrowDown') play(i + 1)
   if (e.key === 'ArrowUp') play(i - 1)
 }
