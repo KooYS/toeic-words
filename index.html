@@ -59,6 +59,10 @@
         width: 54px; height: 54px; border-radius: 50%; font-size: 21px; line-height: 1;
         color: #fff; background: var(--accent); border-color: var(--accent);
         box-shadow: 0 4px 14px #0004; z-index: 20; }
+  #spd { position: fixed; right: 82px; bottom: calc(16px + env(safe-area-inset-bottom));
+         height: 54px; padding: 0 14px; border-radius: 27px; font-size: 15px; font-weight: 600;
+         color: var(--accent); border-color: var(--accent); background: var(--bg);
+         box-shadow: 0 4px 14px #0004; z-index: 20; }
   #list { padding-bottom: 84px; }   /* 마지막 줄이 버튼에 안 가리게 */
   label { display: flex; gap: 5px; align-items: center; font-size: 14px; }
   header button { padding: 6px 10px; }
@@ -130,6 +134,7 @@
 <div id="auth" hidden></div>
 <audio id="au"></audio>
 <button id="pp" hidden>⏸︎</button>
+<button id="spd" hidden>1×</button>
 
 <!-- CDN 대신 저장소에 둔다. 인앱 브라우저에서 CDN이 막히면 앱 전체가 죽는다 -->
 <script src="vendor/supabase.js"></script>
@@ -350,7 +355,7 @@ function show(name, title) {
   $('back').hidden = name === 'grid'
   $('go').hidden = $('quizgo').hidden = $('examgo').hidden = $('acct').hidden = name !== 'grid'
   $('optloop').hidden = $('opttwice').hidden = $('optword').hidden = $('opthide').hidden =
-    $('pp').hidden = name !== 'list'
+    $('pp').hidden = $('spd').hidden = name !== 'list'
 }
 
 $('back').onclick = () => {
@@ -468,6 +473,14 @@ function toggle() {
   $('au').play()
 }
 $('pp').onclick = toggle
+
+// 배속. defaultPlaybackRate까지 같이 잡아야 파일이 바뀌어도 유지된다
+const RATES = [1, 1.25, 1.5, 2]
+$('spd').onclick = () => {
+  const r = RATES[(RATES.indexOf($('au').playbackRate) + 1) % RATES.length] || 1
+  $('au').playbackRate = $('au').defaultPlaybackRate = r
+  $('spd').textContent = r + '×'
+}
 
 // 뜻 숨기기: 단어만 보고 뜻을 떠올리는 연습용. 소리는 그대로라 몇 초 뒤 낭독이 정답을 준다
 $('hidemean').onchange = e => $('list').classList.toggle('nomean', e.target.checked)
