@@ -123,6 +123,7 @@
   <button id="examgo" disabled>시험</button>
   <button id="acct">로그인</button>
   <label id="optloop"><input type="checkbox" id="loop" checked>이어듣기</label>
+  <label id="optshuf"><input type="checkbox" id="shuf">섞기</label>
   <label id="opttwice"><input type="checkbox" id="twice">2회</label>
   <label id="optword"><input type="checkbox" id="wordonly">단어만</label>
   <label id="opthide"><input type="checkbox" id="hidemean">뜻 숨기기</label>
@@ -354,7 +355,7 @@ function show(name, title) {
   $('auth').hidden = name !== 'auth'
   $('back').hidden = name === 'grid'
   $('go').hidden = $('quizgo').hidden = $('examgo').hidden = $('acct').hidden = name !== 'grid'
-  $('optloop').hidden = $('opttwice').hidden = $('optword').hidden = $('opthide').hidden =
+  $('optloop').hidden = $('optshuf').hidden = $('opttwice').hidden = $('optword').hidden = $('opthide').hidden =
     $('pp').hidden = $('spd').hidden = name !== 'list'
 }
 
@@ -380,7 +381,13 @@ function picked() {
 
 $('go').onclick = () => {
   cur = picked()
+  if ($('shuf').checked) shuffle(cur)
   show('list', `${cur.length}단어`)
+  render()
+  play(0)
+}
+
+function render() {
   $('list').replaceChildren(...cur.map((s, n) => {
     const li = document.createElement('li')
     const txt = document.createElement('div'); txt.className = 'txt'
@@ -390,7 +397,20 @@ $('go').onclick = () => {
     li.onclick = () => play(n)
     return li
   }))
-  play(0)
+}
+
+// 듣는 도중에 켜고 꺼도 지금 단어는 끊지 않는다. 순서만 바꾸고 그 단어의 새 자리로 i 를 옮긴다.
+// 켤 때는 지금 단어를 맨 앞에 둬서 섞은 순서가 거기서부터 이어지고,
+// 끌 때는 진도 순서에서 그 단어 다음부터 이어진다.
+$('shuf').onchange = () => {
+  if ($('list').hidden) return
+  const now = cur[i]
+  cur = picked()
+  if ($('shuf').checked) shuffle(cur)
+  if (now && ($('shuf').checked || !cur.includes(now))) cur = [now, ...cur.filter(s => s !== now)]
+  i = cur.indexOf(now)
+  render()
+  if (now) mark(i)
 }
 
 // src 지정 직후엔 아직 메타데이터가 없어 seek이 무시된다 → 로드된 뒤에 건다
